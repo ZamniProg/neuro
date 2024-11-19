@@ -5,8 +5,9 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="b8fbcd21-df29-46c4-b15f-36c813733ae8" name="Changes" comment="">
+      <change beforePath="$PROJECT_DIR$/.idea/FOR_TEST.iml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/FOR_TEST.iml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/misc.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/misc.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/MAIN.py" beforeDir="false" afterPath="$PROJECT_DIR$/MAIN.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -37,7 +38,8 @@
     "Python.MAIN.executor": "Run",
     "Python.main2.executor": "Run",
     "RunOnceActivity.ShowReadmeOnStart": "true",
-    "git-widget-placeholder": "master"
+    "git-widget-placeholder": "master",
+    "last_opened_file_path": "Z:/programming/pythonproj/neuro/.venv"
   }
 }]]></component>
   <component name="SharedIndexes">
