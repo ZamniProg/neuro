@@ -14,23 +14,39 @@ def relu(x):
 def load_data(path):
     learn_data = []
     train_data = []
+
     for name, label in classes.items():
         folder_path = os.path.join(path, name)
         batch_of_files = os.listdir(folder_path)
-        for_train = len(batch_of_files) / 10
+
+        # Определяем количество данных для тренировочного набора (10%)
+        for_train = len(batch_of_files) // 10  # Количество файлов, которые пойдут в тренировочные данные
+
         for idx, file in enumerate(batch_of_files):
             if file.endswith(".jpg"):
                 image_path = os.path.join(folder_path, file)
-                image = Image.open(image_path).resize((64, 64))
-                image_arr = np.array(image) / 255.0
-                if idx <= for_train:
+                image = Image.open(image_path).resize((64, 64))  # Меняем размер изображения на 64x64
+                image_arr = np.array(image) / 255.0  # Нормализуем пиксели (0-1)
+
+                # Добавляем изображение в соответствующий список (train или learn)
+                if idx < for_train:
                     train_data.append((image_arr, label))
                 else:
                     learn_data.append((image_arr, label))
+
+    # Перемешиваем данные
     random.shuffle(learn_data)
     random.shuffle(train_data)
 
-    return learn_data, train_data
+    # Извлекаем изображения и метки из данных
+    learn_images = np.array([item[0] for item in learn_data])
+    learn_labels = np.array([item[1] for item in learn_data])
+
+    train_images = np.array([item[0] for item in train_data])
+    train_labels = np.array([item[1] for item in train_data])
+
+    # Возвращаем данные в виде кортежей: изображения и метки для learn и train
+    return (learn_images, learn_labels), (train_images, train_labels)
 
 
 class FullConnectedLayer:
@@ -121,7 +137,7 @@ class MaxPoolLayer:
 
 class ConvolutionLayer:     # maybe ready
     """Слой для свертки изображения"""
-    def __init__(self, filter_size, num_filters, num_channels, stride=2, learning_rate=0.01, activation=relu):
+    def __init__(self, filter_size, num_filters, num_channels=3, stride=2, learning_rate=0.01, activation=relu):
         self.num_filters = num_filters
         self.num_channels = num_channels
         self.stride = stride
@@ -183,22 +199,56 @@ class ConvolutionLayer:     # maybe ready
         self.filters -= self.learning_rate * d_filters
         self.biases -= self.learning_rate * d_biases
 
-        return d_input, d_filters, d_biases
+        return d_input
 
 
 class NeuralNetwork:
-    def __init__(self, input_size, hidden_size, output_size, filters, filters_size, learning_rate=0.01):
-        pass
+    def __init__(self, input_size, hidden_size, output_size,
+                 filter_size, num_filters,
+                 pool_size, stride,
+                 learning_rate=0.01, activation=relu):
+        self.conv1 = ConvolutionLayer(filter_size, num_filters)
+        self.mpl1 = MaxPoolLayer(pool_size * 2, stride * 2)
+        self.conv2 = ConvolutionLayer(filter_size * 2, num_filters * 2)
+        self.mpl2 = MaxPoolLayer(pool_size, stride)
+        self.fcl = FullConnectedLayer(input_size, output_size)  # вот тут надо подкорректировать input и output
 
-    def forward(self):
-        pass
+    def forward(self, x):
+        x = self.conv1.forward(x)
+        x = self.mpl1.forward(x)
+        x = self.conv2.forward(x)
+        x = self.mpl2.forward(x)
+        x = self.fcl.forward(x)
 
-    def backward_prop(self):
-        pass
+        return x
+
+    def backward_prop(self, d):
+        d = self.fcl.calculate_grads(d)
+        d = self.mpl2.backward_prop(d)
+        d = self.conv2.backward_prop(d)
+        d = self.mpl1.backward_prop(d)
+        d = self.conv1.backward_prop(d)
+
+        return d
 
     def train(self):
         pass
 
 
-learn, _ = load_data(r"flower_photos")
-print(learn[0][0].shape)
+def main():
+    output_size = len(classes)
+
+    learn, train = load_data("flower_photos")
+    learn_images, learn_labels = learn
+    train_images, train_labels = train
+
+    input_size = 0      # рассчитать
+    hidden_size = 0     # рассчитать
+    filter_size = 0     # рассчитать
+    num_filters = 0     # рассчитать
+    pool_size = 0       # рассчитать
+    stride = 0          # рассчитать
+
+
+if __name__ == "__main__":
+    main()
