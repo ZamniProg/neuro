@@ -30,8 +30,8 @@ def load_data(path):
 
 
 class FullConnectedLayer:
-    def __init__(self):
-        pass
+    def __init__(self, input_size, output_size):
+        self.weights = np.random.randn(input_size)
 
     def forward(self):
         pass
@@ -41,15 +41,57 @@ class FullConnectedLayer:
 
 
 class MaxPoolLayer:
-    def __init__(self, pool_size=4, stride=2):
+    """Слой для уменьшения размеров изображения (оставляем только значимые веса)"""
+    def __init__(self, pool_size=2, stride=2):
         self.pool_size = pool_size
         self.stride = stride
 
-    def forward(self):
-        pass
+    def forward(self, input_data):
+        h, w, c = input_data.shape
+
+        h_out = (h - self.pool_size) // self.stride + 1
+        w_out = (w - self.pool_size) // self.stride + 1
+
+        out = np.zeros_like((h_out, w_out, c))
+
+        for f in range(c):
+            for k1 in range(0, h_out):
+                for k2 in range(0, w_out):
+                    h_start = k1 * self.stride
+                    h_end = h_start + self.pool_size
+
+                    w_start = k2 * self.stride
+                    w_end = w_start * self.pool_size
+
+                    out[k1, k2, f] = np.max(input_data[h_start:h_end, w_start:w_end, f])
+
+        return out
+
+    def backward_prop(self, d_out, input_data):
+        h_s, w_s, channels = input_data.shape
+        h_e, w_e, channels = d_out.shape
+
+        d_input = np.zeros_like(input_data)
+
+        for c in range(channels):
+            for h in range(h_e):
+                for w in range(w_e):
+                    h_start = h * self.stride
+                    h_end = h_start + self.pool_size
+
+                    w_start = w * self.stride
+                    w_end = w_start + self.pool_size
+
+                    region = input_data[h_start:h_end, w_start:w_end, c]
+                    max_val = np.max(region)
+
+                    d_input[h_start:h_end, w_start:w_end, c] += (region == max_val) * d_out[h, w, c]
+
+        return d_input
 
 
 class ConvolutionLayer:     # maybe ready
+    """Слой для свертки изображения"""
     def __init__(self, filter_size, num_filters, num_channels, stride=2, learning_rate=0.01):
         self.num_filters = num_filters
         self.num_channels = num_channels
@@ -115,10 +157,7 @@ class ConvolutionLayer:     # maybe ready
 
 class NeuralNetwork:
     def __init__(self, input_size, hidden_size, output_size, filters, filters_size, learning_rate=0.01):
-        self.learning_rate = learning_rate
-        # self.conv1 = ConvolutionLayer()
-        self.WxTh = np.random.randn(input_size, hidden_size) * 0.01
-        self.WhTo = np.random.randn(hidden_size, output_size) * 0.01
+        pass
 
     def forward(self):
         pass
