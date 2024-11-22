@@ -2,13 +2,13 @@ import os.path
 import random
 from PIL import Image
 import numpy as np
-
+import time
 
 classes = {"daisy": 0, "dandelion": 1, "roses": 2, "sunflowers": 3, "tulips": 4}
 
 
 def relu(x):
-    return np.max(0, x)
+    return np.maximum(0, x)
 
 
 def load_data(path):
@@ -51,6 +51,7 @@ def load_data(path):
 
 class FullConnectedLayer:
     """Полносвязный слой для нелинейного преобразования всех предыдущих входных данных"""
+
     def __init__(self, input_size, output_size, activation=relu):
         self.input_size = input_size
         self.output_size = output_size
@@ -60,7 +61,7 @@ class FullConnectedLayer:
         self.input_data = None
 
     def forward(self, input_data):
-        h_s, w_s, channels = input_data.shape
+        count, h_s, w_s, channels = input_data.shape
 
         input_x = input_data.reshape(input_data.shape[0], -1)
         self.input_data = input_x
@@ -84,117 +85,126 @@ class FullConnectedLayer:
 
 class MaxPoolLayer:
     """Слой для уменьшения размеров изображения (оставляем только значимые веса)"""
+
     def __init__(self, pool_size=2, stride=2):
         self.pool_size = pool_size
         self.stride = stride
         self.input_data = None
 
     def forward(self, input_data):
-        h, w, c = input_data.shape
+        count, h, w, c = input_data.shape
 
         self.input_data = input_data
 
         h_out = (h - self.pool_size) // self.stride + 1
         w_out = (w - self.pool_size) // self.stride + 1
 
-        out = np.zeros_like((h_out, w_out, c))
+        out = np.zeros((count, h_out, w_out, c))
+        for i in range(count):
+            for f in range(c):
+                for k1 in range(0, h_out):
+                    for k2 in range(0, w_out):
+                        h_start = k1 * self.stride
+                        h_end = h_start + self.pool_size
 
-        for f in range(c):
-            for k1 in range(0, h_out):
-                for k2 in range(0, w_out):
-                    h_start = k1 * self.stride
-                    h_end = h_start + self.pool_size
+                        w_start = k2 * self.stride
+                        w_end = w_start + self.pool_size
 
-                    w_start = k2 * self.stride
-                    w_end = w_start * self.pool_size
-
-                    out[k1, k2, f] = np.max(input_data[h_start:h_end, w_start:w_end, f])
+                        out[i, k1, k2, f] = np.max(input_data[i, h_start:h_end, w_start:w_end, f])
 
         return out
 
     def backward_prop(self, d_out):
-        h_s, w_s, channels = self.input_data.shape
-        h_e, w_e, channels = d_out.shape
+        count = self.input_data.shape[0]
+        h_s, w_s, channels = self.input_data.shape[1], self.input_data.shape[2], self.input_data.shape[3]
+        w_e = (h_s - self.pool_size) // self.stride + 1
+        h_e = (w_s - self.pool_size) // self.stride + 1
+
+        d_out_reshaped = d_out.reshape(count, h_e, w_e, 16)
 
         d_input = np.zeros_like(self.input_data)
 
-        for c in range(channels):
-            for h in range(h_e):
-                for w in range(w_e):
-                    h_start = h * self.stride
-                    h_end = h_start + self.pool_size
+        for i in range(count):
+            for c in range(channels):
+                for h in range(h_e):
+                    for w in range(w_e):
+                        h_start = h * self.stride
+                        h_end = h_start + self.pool_size
 
-                    w_start = w * self.stride
-                    w_end = w_start + self.pool_size
+                        w_start = w * self.stride
+                        w_end = w_start + self.pool_size
 
-                    region = self.input_data[h_start:h_end, w_start:w_end, c]
-                    max_val = np.max(region)
+                        region = self.input_data[i, h_start:h_end, w_start:w_end, c]
+                        max_val = np.max(region)
 
-                    d_input[h_start:h_end, w_start:w_end, c] += (region == max_val) * d_out[h, w, c]
+                        d_input[i, h_start:h_end, w_start:w_end, c] += (region == max_val) * d_out_reshaped[i, h, w, c]
 
         return d_input
 
 
-class ConvolutionLayer:     # maybe ready
+class ConvolutionLayer:  # maybe ready
     """Слой для свертки изображения"""
+
     def __init__(self, filter_size, num_filters, num_channels=3, stride=2, learning_rate=0.01, activation=relu):
         self.num_filters = num_filters
         self.num_channels = num_channels
         self.stride = stride
         self.filter_size = filter_size
         self.filters = np.random.randn(filter_size, filter_size, num_channels, num_filters) * 0.01  # rework
-        self.biases = np.zeros((num_filters, ))
+        self.biases = np.zeros((num_filters,))
         self.learning_rate = learning_rate
         self.activation = activation
         self.image = None
 
     def forward(self, image):
-        h, w, _, channels = image.shape
+        count, h, w, channels = image.shape
         self.image = image
         h_out = (h - self.filter_size) // self.stride + 1
         w_out = (w - self.filter_size) // self.stride + 1
 
-        out = np.zeros((h_out, w_out, self.num_channels))
+        out = np.zeros((count, h_out, w_out, self.num_filters))
 
-        for f in range(self.num_filters):
-            for k1 in range(self.filter_size):
-                for k2 in range(self.filter_size):
-                    h_start = k1 * self.stride
-                    h_end = h_start + self.filter_size
-                    w_start = k2 * self.stride
-                    w_end = w_start + self.filter_size
+        for i in range(count):
+            for f in range(self.num_filters):
+                for k1 in range(self.filter_size):
+                    for k2 in range(self.filter_size):
+                        h_start = k1 * self.stride
+                        h_end = h_start + self.filter_size
+                        w_start = k2 * self.stride
+                        w_end = w_start + self.filter_size
 
-                    region = image[h_start:h_end, w_start:w_end, :]
+                        region = image[i, h_start:h_end, w_start:w_end, :]
 
-                    out[k1, k2, f] = np.sum(region * self.filters[:, :, :, f]) + self.biases[f]
+                        out[i, k1, k2, f] = np.sum(region * self.filters[:, :, :, f]) + self.biases[f]
 
         out = self.activation(out) if self.activation else out
 
         return out
 
     def backward_prop(self, grad_out):
-        h_image, w_image, c_image = self.image.shape
-        h_out, w_out, num_filters = grad_out.shape
+        count, h_image, w_image, c_image = self.image.shape
+        _, h_out, w_out, num_filters = grad_out.shape
 
         d_filters = np.zeros_like(self.filters)
         d_biases = np.zeros_like(self.biases)
         d_input = np.zeros_like(self.image)
 
-        for f in range(self.num_filters):
-            for k1 in range(h_out):
-                for k2 in range(w_out):
-                    h_start = k1 * self.stride
-                    h_end = h_start + self.filter_size
-                    w_start = k2 * self.stride
-                    w_end = w_start + self.filter_size
+        for i in range(count):
+            for f in range(num_filters):
+                for k1 in range(h_out):
+                    for k2 in range(w_out):
+                        h_start = k1 * self.stride
+                        h_end = h_start + self.filter_size
+                        w_start = k2 * self.stride
+                        w_end = w_start + self.filter_size
 
-                    region = self.image[h_start:h_end, w_start:w_end, :]
+                        region = self.image[i, h_start:h_end, w_start:w_end, :]
 
-                    d_filters[:, :, :, f] += region * grad_out[k1, k2, f]
+                        d_filters[:, :, :, f] += region * grad_out[i, k1, k2, f]
 
-                    d_input[h_start:h_end, w_start:w_end, :] += self.filters[:, :, :, f] * grad_out[k1, k2, f]
+                        d_input[i, h_start:h_end, w_start:w_end, :] += self.filters[:, :, :, f] * grad_out[i, k1, k2, f]
 
-            d_biases[f] += np.sum(grad_out[:, :, f])
+                d_biases[f] += np.sum(grad_out[i, :, :, f])
 
         self.filters -= self.learning_rate * d_filters
         self.biases -= self.learning_rate * d_biases
@@ -209,9 +219,9 @@ class NeuralNetwork:
                  learning_rate=0.01, activation=relu):
         self.conv1 = ConvolutionLayer(filter_size, num_filters)
         self.mpl1 = MaxPoolLayer(pool_size * 2, stride * 2)
-        self.conv2 = ConvolutionLayer(filter_size * 2, num_filters * 2)
-        self.mpl2 = MaxPoolLayer(pool_size, stride)
-        self.fcl = FullConnectedLayer(input_size, output_size)  # вот тут надо подкорректировать input и output
+        self.conv2 = ConvolutionLayer(filter_size, num_filters, 16)
+        self.mpl2 = MaxPoolLayer(pool_size, 1)
+        self.fcl = FullConnectedLayer(hidden_size, output_size)  # вот тут надо подкорректировать input и output
 
     def forward(self, x):
         x = self.conv1.forward(x)
@@ -231,23 +241,124 @@ class NeuralNetwork:
 
         return d
 
-    def train(self):
-        pass
+    def train(self, images, labels, epochs=10, batch_size=29):
+        num_samples = images.shape[0]
+
+        with open("Accuracy.txt", "w") as f:
+            for epoch in range(epochs):
+                time_s = time.time()
+                total_loss = 0
+                correct_predictions = 0
+
+                # Перемешивание данных в начале каждой эпохи
+                indices = np.arange(num_samples)
+                np.random.shuffle(indices)
+                images = images[indices]
+                labels = labels[indices]
+
+                # Разделение данных на мини-батчи
+                for batch_start in range(0, num_samples, batch_size):
+                    time_s_b = time.time()
+                    batch_end = min(batch_start + batch_size, num_samples)
+                    image_batch = images[batch_start:batch_end]
+                    label_batch = labels[batch_start:batch_end]
+
+                    # Прямое распространение (forward pass)
+                    predictions = self.forward(image_batch)
+
+                    # Преобразуем метки в one-hot формат для кросс-энтропии
+                    one_hot_labels = np.zeros_like(predictions)
+                    one_hot_labels[np.arange(label_batch.size), label_batch] = 1
+
+                    # Вычисляем функцию ошибки (Cross-Entropy Loss)
+                    loss = -np.sum(one_hot_labels * np.log(predictions + 1e-7)) / batch_size
+                    total_loss += loss
+
+                    # Оценка корректных предсказаний
+                    now_correct_predictions = np.sum(np.argmax(predictions, axis=1) == label_batch)
+                    correct_predictions += now_correct_predictions
+                    if now_correct_predictions > correct_predictions:
+                        print("УРА ЧТО-ТО СОВПАЛО!!!")
+
+                    # Градиент ошибки
+                    grad_loss = predictions - one_hot_labels  # Градиент CrossEntropyLoss
+
+                    # Обратное распространение (backward pass)
+                    self.backward_prop(grad_loss)
+                    time_e_b = time.time()
+
+                    print(f"Loss: {loss:.4f}, Accuracy: {now_correct_predictions / batch_size:.4%}\n"
+                          f"Time: {time_e_b - time_s_b} sec.")
+
+                time_e = time.time()
+
+                # Средняя ошибка и точность за эпоху
+                average_loss = total_loss / (num_samples // batch_size)
+                accuracy = correct_predictions / num_samples
+
+                # Вывод результатов текущей эпохи
+                print(f"Epoch {epoch + 1}/{epochs} - Loss: {average_loss:.4f}, Accuracy: {accuracy:.4%}\n"
+                      f"Time: {time_e - time_s} sec.")
+                f.write(f"Epoch {epoch + 1}/{epochs} - Loss: {average_loss:.4f}, Accuracy: {accuracy:.4%}\n"
+                        f"Time: {time_e - time_s} sec.")
+
+
+def test_model(model, test_images, test_labels):
+    """
+    Функция для тестирования обученной модели на тестовом наборе данных.
+
+    :param model: обученная модель (экземпляр NeuralNetwork)
+    :param test_images: изображения для тестирования (матрица данных)
+    :param test_labels: метки классов для тестовых изображений
+    :return: точность на тестовом наборе данных
+    """
+    num_samples = test_images.shape[0]
+    correct_predictions = 0
+
+    # Прямое распространение и оценка точности
+    for i in range(num_samples):
+        # Выводим прогресс каждые 100 шагов
+        if i % 100 == 0:
+            print(f"Testing: {i}/{num_samples} samples processed")
+
+        # Получаем прогноз для текущего изображения
+        prediction = model.forward(test_images[i:i + 1])  # Передаем одно изображение (batch size = 1)
+
+        # Получаем класс с наибольшей вероятностью
+        predicted_class = np.argmax(prediction, axis=1)
+
+        # Проверяем, совпадает ли предсказанный класс с реальной меткой
+        if predicted_class == test_labels[i]:
+            correct_predictions += 1
+
+    # Вычисляем точность
+    accuracy = correct_predictions / num_samples
+    print(f"Test Accuracy: {accuracy:.4%}")
+
+    return accuracy
 
 
 def main():
-    output_size = len(classes)
-
+    # Need: надо короче переделать по размерам(что бы в общем у нас было не 3x3 в конце, а хотя бы 6x6)
     learn, train = load_data("flower_photos")
     learn_images, learn_labels = learn
     train_images, train_labels = train
 
-    input_size = 0      # рассчитать
-    hidden_size = 0     # рассчитать
-    filter_size = 0     # рассчитать
-    num_filters = 0     # рассчитать
-    pool_size = 0       # рассчитать
-    stride = 0          # рассчитать
+    output_size = len(classes)  # рассчитано автоматически
+    input_size = 64 * 64  # рассчитать (вроде обычный входной слой)
+    hidden_size = 3 * 3 * 16  # рассчитать (из конца в выходной)
+    filter_size = 2  # рассчитать (1 - [64x64x3] -> [32x32x3]; 2 - [16x16x3] -> [8x8x3]), 1 - (2), 2 - (2)
+    num_filters = 16  # рассчитать (не уверен, но вроде наплевать)
+    pool_size = 2  # рассчитать (1 - [32x32x3] -> [16x16x3]; 2 - [8x8x3] -> [4x4x3]), 1 - (2), 2 - (2)
+    stride = 2  # рассчитать (2)
+
+    model = NeuralNetwork(input_size, hidden_size, output_size,
+                          filter_size, num_filters, pool_size, stride)
+
+    model.train(learn_images, learn_labels)
+
+    test_accuracy = test_model(model, train_images, train_labels)
+    print(f"Final test accuracy: {test_accuracy:.4f}")
 
 
 if __name__ == "__main__":

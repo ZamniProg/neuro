@@ -1,0 +1,11 @@
+Epoch 1/10 - Loss: 1.7446, Accuracy: 22.5650%
+Time: 520.2696194648743 sec.Epoch 2/10 - Loss: 1.6115, Accuracy: 22.8675%
+Time: 518.0107362270355 sec.Epoch 3/10 - Loss: 1.6087, Accuracy: 23.4725%
+Time: 512.5980370044708 sec.Epoch 4/10 - Loss: 1.6318, Accuracy: 24.3194%
+Time: 516.5361716747284 sec.Epoch 5/10 - Loss: 1.6005, Accuracy: 26.3158%
+Time: 513.3945212364197 sec.Epoch 6/10 - Loss: 1.5968, Accuracy: 27.2232%
+Time: 517.179300069809 sec.Epoch 7/10 - Loss: 1.6082, Accuracy: 27.0720%
+Time: 513.0673215389252 sec.Epoch 8/10 - Loss: 1.6167, Accuracy: 26.8905%
+Time: 516.2990248203278 sec.Epoch 9/10 - Loss: 1.6102, Accuracy: 26.9510%
+Time: 518.6995735168457 sec.Epoch 10/10 - Loss: 1.6082, Accuracy: 28.1912%
+Time: 511.3275718688965 sec.
