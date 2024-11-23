@@ -11,6 +11,11 @@ def relu(x):
     return np.maximum(0, x)
 
 
+def softmax(x):
+    exp_x = np.exp(x - np.max(x, axis=1, keepdims=True))  # Численная стабильность
+    return exp_x / np.sum(exp_x, axis=1, keepdims=True)
+
+
 def load_data(path):
     learn_data = []
     train_data = []
@@ -25,7 +30,7 @@ def load_data(path):
         for idx, file in enumerate(batch_of_files):
             if file.endswith(".jpg"):
                 image_path = os.path.join(folder_path, file)
-                image = Image.open(image_path).resize((64, 64))  # Меняем размер изображения на 64x64
+                image = Image.open(image_path).resize((128, 128))  # Меняем размер изображения на 64x64
                 image_arr = np.array(image) / 255.0  # Нормализуем пиксели (0-1)
 
                 # Добавляем изображение в соответствующий список (train или learn)
@@ -55,7 +60,7 @@ class FullConnectedLayer:
     def __init__(self, input_size, output_size, activation=relu):
         self.input_size = input_size
         self.output_size = output_size
-        self.weights = np.random.randn(input_size, output_size) * 0.01
+        self.weights = np.random.randn(input_size, output_size) * np.sqrt(2 / input_size)
         self.biases = np.zeros((1, output_size))
         self.activation = activation
         self.input_data = None
@@ -86,9 +91,10 @@ class FullConnectedLayer:
 class MaxPoolLayer:
     """Слой для уменьшения размеров изображения (оставляем только значимые веса)"""
 
-    def __init__(self, pool_size=2, stride=2):
+    def __init__(self, num_channels=32, pool_size=2, stride=2):
         self.pool_size = pool_size
         self.stride = stride
+        self.num_channels = num_channels
         self.input_data = None
 
     def forward(self, input_data):
@@ -120,7 +126,7 @@ class MaxPoolLayer:
         w_e = (h_s - self.pool_size) // self.stride + 1
         h_e = (w_s - self.pool_size) // self.stride + 1
 
-        d_out_reshaped = d_out.reshape(count, h_e, w_e, 16)
+        d_out_reshaped = d_out.reshape(count, h_e, w_e, self.num_channels)
 
         d_input = np.zeros_like(self.input_data)
 
@@ -218,9 +224,9 @@ class NeuralNetwork:
                  pool_size, stride,
                  learning_rate=0.01, activation=relu):
         self.conv1 = ConvolutionLayer(filter_size, num_filters)
-        self.mpl1 = MaxPoolLayer(pool_size * 2, stride * 2)
-        self.conv2 = ConvolutionLayer(filter_size, num_filters, 16)
-        self.mpl2 = MaxPoolLayer(pool_size, 1)
+        self.mpl1 = MaxPoolLayer(num_filters, pool_size // 2, stride // 2)
+        self.conv2 = ConvolutionLayer(filter_size, num_filters, num_filters)
+        self.mpl2 = MaxPoolLayer(num_filters, pool_size, 2)
         self.fcl = FullConnectedLayer(hidden_size, output_size)  # вот тут надо подкорректировать input и output
 
     def forward(self, x):
@@ -229,6 +235,7 @@ class NeuralNetwork:
         x = self.conv2.forward(x)
         x = self.mpl2.forward(x)
         x = self.fcl.forward(x)
+        x = softmax(x)
 
         return x
 
@@ -345,11 +352,11 @@ def main():
     train_images, train_labels = train
 
     output_size = len(classes)  # рассчитано автоматически
-    input_size = 64 * 64  # рассчитать (вроде обычный входной слой)
-    hidden_size = 3 * 3 * 16  # рассчитать (из конца в выходной)
-    filter_size = 2  # рассчитать (1 - [64x64x3] -> [32x32x3]; 2 - [16x16x3] -> [8x8x3]), 1 - (2), 2 - (2)
-    num_filters = 16  # рассчитать (не уверен, но вроде наплевать)
-    pool_size = 2  # рассчитать (1 - [32x32x3] -> [16x16x3]; 2 - [8x8x3] -> [4x4x3]), 1 - (2), 2 - (2)
+    input_size = 128 * 128  # рассчитать (вроде обычный входной слой)
+    filter_size = 2  # рассчитать (1 - [128x128x3] -> [64x64xN]; 2 - [64x64xM] -> [32x32xM]), 1 - (2), 2 - (2)
+    num_filters = 32  # рассчитать (не уверен, но вроде наплевать)
+    hidden_size = 16 * 16 * num_filters  # рассчитать (из конца в выходной)
+    pool_size = 2  # рассчитать (1 - [64x64xN] -> [64x64xN]; 2 - [32x32xM] -> [16x16xM]), 1 - (2), 2 - (2)
     stride = 2  # рассчитать (2)
 
     model = NeuralNetwork(input_size, hidden_size, output_size,
