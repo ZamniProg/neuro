@@ -73,20 +73,19 @@ class DropoutLayer:
 class FullConnectedLayer:
     """Полносвязный слой для нелинейного преобразования всех предыдущих входных данных"""
 
-    def __init__(self, input_size, output_size, activation=relu):
+    def __init__(self, input_size, output_size, activation=relu, learning_rate=0.01):
         self.input_size = input_size
         self.output_size = output_size
         self.weights = np.random.randn(input_size, output_size) * np.sqrt(2 / input_size)
         self.biases = np.zeros((1, output_size))
         self.activation = activation
+        self.learning_rate = learning_rate
         self.input_data = None
 
     def get_weights(self):
         return self.weights
 
     def forward(self, input_data):
-        count, h_s, w_s, channels = input_data.shape
-
         input_x = input_data.reshape(input_data.shape[0], -1)
         self.input_data = input_x
 
@@ -101,8 +100,8 @@ class FullConnectedLayer:
 
         d_input = np.dot(d_out, self.weights.T)
 
-        self.weights -= learning_rate * d_weights
-        self.biases -= learning_rate * d_biases
+        self.weights -= self.learning_rate * d_weights
+        self.biases -= self.learning_rate * d_biases
 
         return d_input
 
@@ -239,12 +238,13 @@ class NeuralNetwork:
     def __init__(self, input_size, hidden_size, output_size,
                  filter_size, num_filters,
                  pool_size, stride,
-                 learning_rate=0.01, activation=relu):
-        self.conv1 = ConvolutionLayer(filter_size, num_filters)
+                 learning_rate=0.001, activation=relu):
+        self.conv1 = ConvolutionLayer(filter_size, num_filters, 3, stride, learning_rate)
         self.mpl1 = MaxPoolLayer((pool_size // 2, pool_size // 2), stride // 2)
-        self.conv2 = ConvolutionLayer(filter_size, num_filters, num_filters)
+        self.conv2 = ConvolutionLayer(filter_size, num_filters, num_filters, stride, learning_rate)
         self.mpl2 = MaxPoolLayer((pool_size, pool_size), stride)
-        self.fcl = FullConnectedLayer(hidden_size, output_size)  # вот тут надо подкорректировать input и output
+        self.fcl = FullConnectedLayer(hidden_size, hidden_size, activation, learning_rate)
+        self.fcl2 = FullConnectedLayer(hidden_size, output_size, activation, learning_rate)
 
     def forward(self, x):
         x = self.conv1.forward(x)
@@ -252,11 +252,13 @@ class NeuralNetwork:
         x = self.conv2.forward(x)
         x = self.mpl2.forward(x)
         x = self.fcl.forward(x)
+        x = self.fcl2.forward(x)
         x = softmax(x)
 
         return x
 
     def backward_prop(self, d):
+        d = self.fcl2.calculate_grads(d)
         d = self.fcl.calculate_grads(d)
         d = self.mpl2.backward_prop(d)
         d = self.conv2.backward_prop(d)
@@ -265,7 +267,7 @@ class NeuralNetwork:
 
         return d
 
-    def train(self, images, labels, epochs=10, batch_size=29):
+    def train(self, images, labels, epochs=10, batch_size=29 * 2):
         num_samples = images.shape[0]
         losses_e = []
         losses_b = []
@@ -400,17 +402,17 @@ def test_model(model, test_images, test_labels):
 
 
 def main():
-    # Need: надо короче переделать по размерам(что бы в общем у нас было не 3x3 в конце, а хотя бы 6x6)
+    # Note: надо короче переделать по размерам(что бы в общем у нас было не 3x3 в конце, а хотя бы 6x6)
     learn, train = load_data("flower_photos")
     learn_images, learn_labels = learn
     train_images, train_labels = train
 
     output_size = len(classes)  # рассчитано автоматически
     input_size = 128 * 128  # рассчитать (вроде обычный входной слой)
-    filter_size = 2  # рассчитать (1 - [128x128x3] -> [64x64xN]; 2 - [64x64xM] -> [32x32xM]), 1 - (2), 2 - (2)
-    num_filters = 32  # рассчитать (не уверен, но вроде наплевать)
-    hidden_size = 16 * 16 * num_filters  # рассчитать (из конца в выходной)
-    pool_size = 2  # рассчитать (1 - [64x64xN] -> [64x64xN]; 2 - [32x32xM] -> [16x16xM]), 1 - (2), 2 - (2)
+    filter_size = 4  # рассчитать (1 - [128x128x3] -> [64x64xN]; 2 - [63x63xM] -> [31x31xM]), 1 - (2), 2 - (2)
+    num_filters = 40  # рассчитать (не уверен, но вроде наплевать)
+    hidden_size = 15 * 15 * num_filters  # рассчитать (из конца в выходной)
+    pool_size = 2  # рассчитать (1 - [64x64xN] -> [63x63xN]; 2 - [31x31xM] -> [14x14xM]), 1 - (2), 2 - (2)
     stride = 2  # рассчитать (2)
 
     model = NeuralNetwork(input_size, hidden_size, output_size,
