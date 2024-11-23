@@ -54,6 +54,22 @@ def load_data(path):
     return (learn_images, learn_labels), (train_images, train_labels)
 
 
+class DropoutLayer:
+    def __init__(self, dropout_rate=0.5):
+        self.dropout_rate = dropout_rate
+        self.mask = None
+
+    def forward_prop(self, input_data, training=True):
+        if training:
+            self.mask = (np.random.rand(*input_data.shape) > self.dropout_rate).astype(float)
+            return input_data * self.mask / (1.0 - self.dropout_rate)
+        else:
+            return input_data
+
+    def backward_prop(self, d_out):
+        return d_out * self.mask / (1.0 - self.dropout_rate)
+
+
 class FullConnectedLayer:
     """Полносвязный слой для нелинейного преобразования всех предыдущих входных данных"""
 
@@ -64,6 +80,9 @@ class FullConnectedLayer:
         self.biases = np.zeros((1, output_size))
         self.activation = activation
         self.input_data = None
+
+    def get_weights(self):
+        return self.weights
 
     def forward(self, input_data):
         count, h_s, w_s, channels = input_data.shape
@@ -89,61 +108,59 @@ class FullConnectedLayer:
 
 
 class MaxPoolLayer:
-    """Слой для уменьшения размеров изображения (оставляем только значимые веса)"""
-
-    def __init__(self, num_channels=32, pool_size=2, stride=2):
+    """Слой для уменьшения изображения и выявления наиболее полезных параметров"""
+    def __init__(self, pool_size, stride=None):
         self.pool_size = pool_size
-        self.stride = stride
-        self.num_channels = num_channels
-        self.input_data = None
+        self.stride = stride if stride is not None else pool_size
+        self.input_shape = None
+        self.forward_cache = None
 
     def forward(self, input_data):
-        count, h, w, c = input_data.shape
+        self.input_shape = input_data.shape
+        (batch_size, height, width, channels) = self.input_shape
+        pool_height, pool_width = self.pool_size
+        stride = self.stride
 
-        self.input_data = input_data
+        out_height = (height - pool_height) // stride + 1
+        out_width = (width - pool_width) // stride + 1
 
-        h_out = (h - self.pool_size) // self.stride + 1
-        w_out = (w - self.pool_size) // self.stride + 1
+        self.forward_cache = input_data
+        output = np.zeros((batch_size, out_height, out_width, channels))
 
-        out = np.zeros((count, h_out, w_out, c))
-        for i in range(count):
-            for f in range(c):
-                for k1 in range(0, h_out):
-                    for k2 in range(0, w_out):
-                        h_start = k1 * self.stride
-                        h_end = h_start + self.pool_size
+        for b in range(batch_size):
+            for c in range(channels):
+                for i in range(out_height):
+                    for j in range(out_width):
+                        start_i, start_j = i * stride, j * stride
+                        end_i, end_j = start_i + pool_height, start_j + pool_width
+                        output[b, i, j, c] = np.max(input_data[b, start_i:end_i, start_j:end_j, c])
 
-                        w_start = k2 * self.stride
-                        w_end = w_start + self.pool_size
-
-                        out[i, k1, k2, f] = np.max(input_data[i, h_start:h_end, w_start:w_end, f])
-
-        return out
+        return output
 
     def backward_prop(self, d_out):
-        count = self.input_data.shape[0]
-        h_s, w_s, channels = self.input_data.shape[1], self.input_data.shape[2], self.input_data.shape[3]
-        w_e = (h_s - self.pool_size) // self.stride + 1
-        h_e = (w_s - self.pool_size) // self.stride + 1
+        (batch_size, height, width, channels) = self.input_shape
+        pool_height, pool_width = self.pool_size
+        stride = self.stride
+        d_input = np.zeros(self.input_shape)
 
-        d_out_reshaped = d_out.reshape(count, h_e, w_e, self.num_channels)
+        h_e = (height - pool_height) // self.stride + 1
+        w_e = (width - pool_width) // self.stride + 1
 
-        d_input = np.zeros_like(self.input_data)
+        d_out_reshaped = d_out.reshape(batch_size, h_e, w_e, channels)
 
-        for i in range(count):
+        for b in range(batch_size):
             for c in range(channels):
-                for h in range(h_e):
-                    for w in range(w_e):
-                        h_start = h * self.stride
-                        h_end = h_start + self.pool_size
+                for i in range(h_e):
+                    for j in range(w_e):
+                        start_i, start_j = i * stride, j * stride
+                        end_i, end_j = start_i + pool_height, start_j + pool_width
 
-                        w_start = w * self.stride
-                        w_end = w_start + self.pool_size
-
-                        region = self.input_data[i, h_start:h_end, w_start:w_end, c]
-                        max_val = np.max(region)
-
-                        d_input[i, h_start:h_end, w_start:w_end, c] += (region == max_val) * d_out_reshaped[i, h, w, c]
+                        # Получаем текущий регион из входных данных
+                        input_region = self.forward_cache[b, start_i:end_i, start_j:end_j, c]
+                        # Маска для элементов, которые были максимальными
+                        mask = (input_region == np.max(input_region))
+                        # Градиент распространяется только на максимальные элементы
+                        d_input[b, start_i:end_i, start_j:end_j, c] += mask * d_out_reshaped[b, i, j, c]
 
         return d_input
 
@@ -224,9 +241,9 @@ class NeuralNetwork:
                  pool_size, stride,
                  learning_rate=0.01, activation=relu):
         self.conv1 = ConvolutionLayer(filter_size, num_filters)
-        self.mpl1 = MaxPoolLayer(num_filters, pool_size // 2, stride // 2)
+        self.mpl1 = MaxPoolLayer((pool_size // 2, pool_size // 2), stride // 2)
         self.conv2 = ConvolutionLayer(filter_size, num_filters, num_filters)
-        self.mpl2 = MaxPoolLayer(num_filters, pool_size, 2)
+        self.mpl2 = MaxPoolLayer((pool_size, pool_size), stride)
         self.fcl = FullConnectedLayer(hidden_size, output_size)  # вот тут надо подкорректировать input и output
 
     def forward(self, x):
@@ -250,12 +267,20 @@ class NeuralNetwork:
 
     def train(self, images, labels, epochs=10, batch_size=29):
         num_samples = images.shape[0]
+        losses_e = []
+        losses_b = []
+        accuracies_b = []
+        accuracies_e = []
+        weights_b = []
+        weights_e = []
 
         with open("Accuracy.txt", "w") as f:
             for epoch in range(epochs):
                 time_s = time.time()
                 total_loss = 0
                 correct_predictions = 0
+                epoch_weights = []
+                epoch_losses = []
 
                 # Перемешивание данных в начале каждой эпохи
                 indices = np.arange(num_samples)
@@ -265,6 +290,10 @@ class NeuralNetwork:
 
                 # Разделение данных на мини-батчи
                 for batch_start in range(0, num_samples, batch_size):
+                    acc = []
+                    loss_b = []
+                    batch_weights = []
+
                     time_s_b = time.time()
                     batch_end = min(batch_start + batch_size, num_samples)
                     image_batch = images[batch_start:batch_end]
@@ -280,22 +309,28 @@ class NeuralNetwork:
                     # Вычисляем функцию ошибки (Cross-Entropy Loss)
                     loss = -np.sum(one_hot_labels * np.log(predictions + 1e-7)) / batch_size
                     total_loss += loss
+                    loss_b.append(loss)
 
                     # Оценка корректных предсказаний
                     now_correct_predictions = np.sum(np.argmax(predictions, axis=1) == label_batch)
                     correct_predictions += now_correct_predictions
-                    if now_correct_predictions > correct_predictions:
-                        print("УРА ЧТО-ТО СОВПАЛО!!!")
 
                     # Градиент ошибки
                     grad_loss = predictions - one_hot_labels  # Градиент CrossEntropyLoss
 
                     # Обратное распространение (backward pass)
                     self.backward_prop(grad_loss)
-                    time_e_b = time.time()
 
+                    # Сохранение весов после обратного распространения
+                    batch_weights.append(self.fcl.get_weights())
+
+                    time_e_b = time.time()
                     print(f"Loss: {loss:.4f}, Accuracy: {now_correct_predictions / batch_size:.4%}\n"
                           f"Time: {time_e_b - time_s_b} sec.")
+
+                    # Сохраняем результаты для текущего батча
+                    weights_b.append(batch_weights)
+                    losses_b.append(loss_b)
 
                 time_e = time.time()
 
@@ -303,11 +338,30 @@ class NeuralNetwork:
                 average_loss = total_loss / (num_samples // batch_size)
                 accuracy = correct_predictions / num_samples
 
+                # Сохранение весов и потерь для текущей эпохи
+                epoch_weights.append(self.fcl.get_weights())
+                weights_e.append(epoch_weights)
+                epoch_losses.append(average_loss)
+                losses_e.append(epoch_losses)
+
                 # Вывод результатов текущей эпохи
                 print(f"Epoch {epoch + 1}/{epochs} - Loss: {average_loss:.4f}, Accuracy: {accuracy:.4%}\n"
                       f"Time: {time_e - time_s} sec.")
                 f.write(f"Epoch {epoch + 1}/{epochs} - Loss: {average_loss:.4f}, Accuracy: {accuracy:.4%}\n"
                         f"Time: {time_e - time_s} sec.")
+
+        # Сохранение в файлы
+        with open("Batch_Losses.txt", "w") as f_b_loss:
+            f_b_loss.write(str(losses_b))
+
+        with open("Epoch_Losses.txt", "w") as f_e_loss:
+            f_e_loss.write(str(losses_e))
+
+        with open("Batch_Weights.txt", "w") as f_b_weights:
+            f_b_weights.write(str(weights_b))
+
+        with open("Epoch_Weights.txt", "w") as f_e_weights:
+            f_e_weights.write(str(weights_e))
 
 
 def test_model(model, test_images, test_labels):
