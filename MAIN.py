@@ -100,6 +100,12 @@ class FullConnectedLayer:
 
         d_input = np.dot(d_out, self.weights.T)
 
+        count = self.input_data.shape[0]
+
+        d_input /= count
+        d_weights /= count
+        d_biases /= count
+
         self.weights -= self.learning_rate * d_weights
         self.biases -= self.learning_rate * d_biases
 
@@ -228,6 +234,10 @@ class ConvolutionLayer:  # maybe ready
 
                 d_biases[f] += np.sum(grad_out[i, :, :, f])
 
+        d_biases /= count
+        d_filters /= count
+        d_input /= count
+
         self.filters -= self.learning_rate * d_filters
         self.biases -= self.learning_rate * d_biases
 
@@ -238,7 +248,7 @@ class NeuralNetwork:
     def __init__(self, input_size, hidden_size, output_size,
                  filter_size, num_filters,
                  pool_size, stride,
-                 learning_rate=0.001, activation=relu):
+                 learning_rate=0.01, activation=relu):
         self.conv1 = ConvolutionLayer(filter_size, num_filters, 3, stride, learning_rate)
         self.mpl1 = MaxPoolLayer((pool_size // 2, pool_size // 2), stride // 2)
         self.conv2 = ConvolutionLayer(filter_size, num_filters, num_filters, stride, learning_rate)
@@ -267,7 +277,7 @@ class NeuralNetwork:
 
         return d
 
-    def train(self, images, labels, epochs=10, batch_size=29 * 2):
+    def train(self, images, labels, save, epochs=10, batch_size=29):
         num_samples = images.shape[0]
         losses_e = []
         losses_b = []
@@ -275,6 +285,9 @@ class NeuralNetwork:
         accuracies_e = []
         weights_b = []
         weights_e = []
+        query = input("Загрузить уже готовые веса для модели? (y/n) - ")
+        if query == "y":
+            self.load_model(save)
 
         with open("Accuracy.txt", "w") as f:
             for epoch in range(epochs):
@@ -346,6 +359,8 @@ class NeuralNetwork:
                 epoch_losses.append(average_loss)
                 losses_e.append(epoch_losses)
 
+                self.save_model(save)
+
                 # Вывод результатов текущей эпохи
                 print(f"Epoch {epoch + 1}/{epochs} - Loss: {average_loss:.4f}, Accuracy: {accuracy:.4%}\n"
                       f"Time: {time_e - time_s} sec.")
@@ -364,6 +379,56 @@ class NeuralNetwork:
 
         with open("Epoch_Weights.txt", "w") as f_e_weights:
             f_e_weights.write(str(weights_e))
+
+    def save_model(self, file_path):
+        """
+        Сохраняет параметры модели в файл.
+        :param file_path: путь к файлу для сохранения
+        """
+        model_data = {
+            "conv1_filters": self.conv1.filters,
+            "conv1_biases": self.conv1.biases,
+            "conv1_activation": self.conv1.activation,
+            "mpl1_pool_size": self.mpl1.pool_size,
+            "mpl1_stride": self.mpl1.stride,
+            "conv2_filters": self.conv2.filters,
+            "conv2_biases": self.conv2.biases,
+            "mpl2_pool_size": self.mpl2.pool_size,
+            "mpl2_stride": self.mpl2.stride,
+            "conv2_activation": self.conv1.activation,
+            "fcl_weights": self.fcl.weights,
+            "fcl_biases": self.fcl.biases,
+            "fcl_activation": self.fcl.activation,
+            "fcl2_weights": self.fcl2.weights,
+            "fcl2_biases": self.fcl2.biases,
+            "fcl2_activation": self.fcl2.activation
+        }
+        np.savez(file_path, **model_data)
+        print(f"Модель сохранена в файл: {file_path}")
+
+    def load_model(self, file_path):
+        """
+        Загружает параметры модели из файла.
+        :param file_path: путь к файлу для загрузки
+        """
+        model_data = np.load(file_path)
+        self.conv1.filters = model_data["conv1_filters"]
+        self.conv1.biases = model_data["conv1_biases"]
+        self.conv1.activation = model_data["conv1_activation"]
+        self.mpl1.pool_size = model_data["mpl1_pool_size"]
+        self.mpl1.stride = model_data["mpl1_stride"]
+        self.conv2.filters = model_data["conv2_filters"]
+        self.conv2.biases = model_data["conv2_biases"]
+        self.conv2.activation = model_data["conv2_activation"]
+        self.mpl2.pool_size = model_data["mpl2_pool_size"]
+        self.mpl2.stride = model_data["mpl2_stride"]
+        self.fcl.weights = model_data["fcl_weights"]
+        self.fcl.biases = model_data["fcl_biases"]
+        self.fcl.activation = model_data["fcl_activation"]
+        self.fcl2.weights = model_data["fcl2_weights"]
+        self.fcl2.biases = model_data["fcl2_biases"]
+        self.fcl2.activation = model_data["fcl2_activation"]
+        print(f"Модель загружена из файла: {file_path}")
 
 
 def test_model(model, test_images, test_labels):
@@ -402,23 +467,25 @@ def test_model(model, test_images, test_labels):
 
 
 def main():
-    # Note: надо короче переделать по размерам(что бы в общем у нас было не 3x3 в конце, а хотя бы 6x6)
+    # Загрузка данных
     learn, train = load_data("flower_photos")
     learn_images, learn_labels = learn
     train_images, train_labels = train
 
+    real_model = "eshkere.json"
+
     output_size = len(classes)  # рассчитано автоматически
     input_size = 128 * 128  # рассчитать (вроде обычный входной слой)
-    filter_size = 4  # рассчитать (1 - [128x128x3] -> [64x64xN]; 2 - [63x63xM] -> [31x31xM]), 1 - (2), 2 - (2)
-    num_filters = 40  # рассчитать (не уверен, но вроде наплевать)
-    hidden_size = 15 * 15 * num_filters  # рассчитать (из конца в выходной)
-    pool_size = 2  # рассчитать (1 - [64x64xN] -> [63x63xN]; 2 - [31x31xM] -> [14x14xM]), 1 - (2), 2 - (2)
+    filter_size = 2  # рассчитать (1 - [128x128x3] -> [64x64xN]; 2 - [64x64xM] -> [32x32xM]), 1 - (2), 2 - (2)
+    num_filters = 32  # рассчитать (не уверен, но вроде наплевать)
+    hidden_size = 16 * 16 * num_filters  # рассчитать (из конца в выходной)
+    pool_size = 2  # рассчитать (1 - [64x64xN] -> [64x64xN]; 2 - [32x32xM] -> [16x16xM]), 1 - (2), 2 - (2)
     stride = 2  # рассчитать (2)
 
     model = NeuralNetwork(input_size, hidden_size, output_size,
                           filter_size, num_filters, pool_size, stride)
 
-    model.train(learn_images, learn_labels)
+    model.train(learn_images, learn_labels, real_model)
 
     test_accuracy = test_model(model, train_images, train_labels)
     print(f"Final test accuracy: {test_accuracy:.4f}")
