@@ -7,6 +7,8 @@
     <list default="true" id="b8fbcd21-df29-46c4-b15f-36c813733ae8" name="Changes" comment="">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/MAIN.py" beforeDir="false" afterPath="$PROJECT_DIR$/MAIN.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/eshkere.json" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/for_tests.py" beforeDir="false" afterPath="$PROJECT_DIR$/for_tests.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -35,6 +37,7 @@
   <component name="PropertiesComponent">{
   &quot;keyToString&quot;: {
     &quot;Python.MAIN.executor&quot;: &quot;Run&quot;,
+    &quot;Python.for_tests.executor&quot;: &quot;Run&quot;,
     &quot;Python.main2.executor&quot;: &quot;Run&quot;,
     &quot;RunOnceActivity.ShowReadmeOnStart&quot;: &quot;true&quot;,
     &quot;git-widget-placeholder&quot;: &quot;master&quot;,

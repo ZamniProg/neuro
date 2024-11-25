@@ -3,6 +3,7 @@ import random
 from PIL import Image
 import numpy as np
 import time
+import matplotlib.pyplot as plt
 
 classes = {"daisy": 0, "dandelion": 1, "roses": 2, "sunflowers": 3, "tulips": 4}
 
@@ -12,8 +13,8 @@ def relu(x):
 
 
 def softmax(x):
-    exp_x = np.exp(x - np.max(x, axis=1, keepdims=True))  # Численная стабильность
-    return exp_x / np.sum(exp_x, axis=1, keepdims=True)
+    exps = np.exp(x - np.max(x, axis=1, keepdims=True))
+    return exps / np.sum(exps, axis=1, keepdims=True)
 
 
 def load_data(path):
@@ -73,14 +74,18 @@ class DropoutLayer:
 class FullConnectedLayer:
     """Полносвязный слой для нелинейного преобразования всех предыдущих входных данных"""
 
-    def __init__(self, input_size, output_size, activation=relu, learning_rate=0.01):
+    def __init__(self, input_size, output_size, history_file, activation=relu, learning_rate=0.01):
         self.input_size = input_size
         self.output_size = output_size
         self.weights = np.random.randn(input_size, output_size) * np.sqrt(2 / input_size)
         self.biases = np.zeros((1, output_size))
         self.activation = activation
         self.learning_rate = learning_rate
+        self.history_file = history_file
         self.input_data = None
+        self.d_weights = None
+        self.d_biases = None
+        self.d_input = None
 
     def get_weights(self):
         return self.weights
@@ -95,21 +100,50 @@ class FullConnectedLayer:
         return output
 
     def calculate_grads(self, d_out, learning_rate=0.01):
-        d_weights = np.dot(self.input_data.T, d_out)
-        d_biases = np.sum(d_out, axis=0, keepdims=True)
+        self.d_weights = np.dot(self.input_data.T, d_out)
+        self.d_biases = np.sum(d_out, axis=0, keepdims=True)
 
-        d_input = np.dot(d_out, self.weights.T)
+        self.d_input = np.dot(d_out, self.weights.T)
 
         count = self.input_data.shape[0]
 
-        d_input /= count
-        d_weights /= count
-        d_biases /= count
+        self.d_input /= count
+        self.d_weights /= count
+        self.d_biases /= count
 
-        self.weights -= self.learning_rate * d_weights
-        self.biases -= self.learning_rate * d_biases
+        self.weights -= self.learning_rate * self.d_weights
+        self.biases -= self.learning_rate * self.d_biases
 
-        return d_input
+        return self.d_input
+
+    def save_history(self, losses):
+        """Сохраняет текущие данные о весах, смещениях и градиентах"""
+        try:
+            history = np.load(self.history_file, allow_pickle=True)
+            weights_history = history['weights'].tolist()
+            biases_history = history['biases'].tolist()
+            grads_history = history['grads'].tolist()
+            losses_history = history['losses'].tolist()
+        except FileNotFoundError:
+            weights_history = []
+            biases_history = []
+            grads_history = []
+            losses_history = []
+
+        weights_history.append(self.weights.copy())
+        biases_history.append(self.biases.copy())
+        grads_history.append({
+            "d_weights": self.d_weights.copy(),
+            "d_biases": self.d_biases.copy(),
+            "d_input": self.d_input.copy()
+        })
+        losses_history.append(losses.copy())
+
+        np.savez(self.history_file,
+                 weights=weights_history,
+                 biases=biases_history,
+                 grads=grads_history,
+                 losses=losses_history)
 
 
 class MaxPoolLayer:
@@ -178,7 +212,7 @@ class ConvolutionLayer:  # maybe ready
         self.num_channels = num_channels
         self.stride = stride
         self.filter_size = filter_size
-        self.filters = np.random.randn(filter_size, filter_size, num_channels, num_filters) * 0.01  # rework
+        self.filters = np.random.randn(filter_size, filter_size, num_channels, num_filters) * np.sqrt(2 / filter_size)
         self.biases = np.zeros((num_filters,))
         self.learning_rate = learning_rate
         self.activation = activation
@@ -189,25 +223,18 @@ class ConvolutionLayer:  # maybe ready
         self.image = image
         h_out = (h - self.filter_size) // self.stride + 1
         w_out = (w - self.filter_size) // self.stride + 1
-
         out = np.zeros((count, h_out, w_out, self.num_filters))
 
-        for i in range(count):
+        for b in range(count):
             for f in range(self.num_filters):
-                for k1 in range(self.filter_size):
-                    for k2 in range(self.filter_size):
-                        h_start = k1 * self.stride
-                        h_end = h_start + self.filter_size
-                        w_start = k2 * self.stride
-                        w_end = w_start + self.filter_size
+                for i in range(0, h_out):
+                    for j in range(0, w_out):
+                        h_start, w_start = i * self.stride, j * self.stride
+                        h_end, w_end = h_start + self.filter_size, w_start + self.filter_size
+                        region = image[b, h_start:h_end, w_start:w_end, :]
+                        out[b, i, j, f] = np.sum(region * self.filters[:, :, :, f]) + self.biases[f]
 
-                        region = image[i, h_start:h_end, w_start:w_end, :]
-
-                        out[i, k1, k2, f] = np.sum(region * self.filters[:, :, :, f]) + self.biases[f]
-
-        out = self.activation(out) if self.activation else out
-
-        return out
+        return self.activation(out)
 
     def backward_prop(self, grad_out):
         count, h_image, w_image, c_image = self.image.shape
@@ -253,8 +280,8 @@ class NeuralNetwork:
         self.mpl1 = MaxPoolLayer((pool_size // 2, pool_size // 2), stride // 2)
         self.conv2 = ConvolutionLayer(filter_size, num_filters, num_filters, stride, learning_rate)
         self.mpl2 = MaxPoolLayer((pool_size, pool_size), stride)
-        self.fcl = FullConnectedLayer(hidden_size, hidden_size, activation, learning_rate)
-        self.fcl2 = FullConnectedLayer(hidden_size, output_size, activation, learning_rate)
+        self.fcl = FullConnectedLayer(hidden_size, hidden_size, "history_fcl1.npz", activation, learning_rate)
+        self.fcl2 = FullConnectedLayer(hidden_size, output_size, "history_fcl2.npz", activation, learning_rate)
 
     def forward(self, x):
         x = self.conv1.forward(x)
@@ -333,8 +360,7 @@ class NeuralNetwork:
                     # Градиент ошибки
                     grad_loss = predictions - one_hot_labels  # Градиент CrossEntropyLoss
 
-                    # Обратное распространение (backward pass)
-                    self.backward_prop(grad_loss)
+                    self.backward_prop(grad_loss)  # Запускаем обратное распространение
 
                     # Сохранение весов после обратного распространения
                     batch_weights.append(self.fcl.get_weights())
@@ -360,6 +386,8 @@ class NeuralNetwork:
                 losses_e.append(epoch_losses)
 
                 self.save_model(save)
+                self.fcl.save_history(average_loss)
+                self.fcl2.save_history(average_loss)
 
                 # Вывод результатов текущей эпохи
                 print(f"Epoch {epoch + 1}/{epochs} - Loss: {average_loss:.4f}, Accuracy: {accuracy:.4%}\n"
@@ -472,7 +500,7 @@ def main():
     learn_images, learn_labels = learn
     train_images, train_labels = train
 
-    real_model = "eshkere.json"
+    real_model = "saved_model"
 
     output_size = len(classes)  # рассчитано автоматически
     input_size = 128 * 128  # рассчитать (вроде обычный входной слой)
@@ -481,6 +509,12 @@ def main():
     hidden_size = 16 * 16 * num_filters  # рассчитать (из конца в выходной)
     pool_size = 2  # рассчитать (1 - [64x64xN] -> [64x64xN]; 2 - [32x32xM] -> [16x16xM]), 1 - (2), 2 - (2)
     stride = 2  # рассчитать (2)
+
+    gray_image = learn_images[0].mean(axis=-1)
+    plt.imshow(gray_image, cmap='gray')
+    plt.title(f"Label: {learn_labels[0]}")
+    plt.axis('off')
+    plt.show()
 
     model = NeuralNetwork(input_size, hidden_size, output_size,
                           filter_size, num_filters, pool_size, stride)
