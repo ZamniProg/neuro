@@ -4,6 +4,8 @@ from PIL import Image
 import numpy as np
 import time
 import matplotlib.pyplot as plt
+from tqdm import tqdm
+import csv
 
 classes = {"daisy": 0, "dandelion": 1, "roses": 2, "sunflowers": 3, "tulips": 4}
 
@@ -74,14 +76,13 @@ class DropoutLayer:
 class FullConnectedLayer:
     """Полносвязный слой для нелинейного преобразования всех предыдущих входных данных"""
 
-    def __init__(self, input_size, output_size, history_file, activation=relu, learning_rate=0.01):
+    def __init__(self, input_size, output_size, activation=relu, learning_rate=0.01):
         self.input_size = input_size
         self.output_size = output_size
         self.weights = np.random.randn(input_size, output_size) * np.sqrt(2 / input_size)
         self.biases = np.zeros((1, output_size))
         self.activation = activation
         self.learning_rate = learning_rate
-        self.history_file = history_file
         self.input_data = None
         self.d_weights = None
         self.d_biases = None
@@ -116,19 +117,12 @@ class FullConnectedLayer:
 
         return self.d_input
 
-    def save_history(self, losses):
-        """Сохраняет текущие данные о весах, смещениях и градиентах"""
-        try:
-            history = np.load(self.history_file, allow_pickle=True)
-            weights_history = history['weights'].tolist()
-            biases_history = history['biases'].tolist()
-            grads_history = history['grads'].tolist()
-            losses_history = history['losses'].tolist()
-        except FileNotFoundError:
-            weights_history = []
-            biases_history = []
-            grads_history = []
-            losses_history = []
+
+    def save_history(self, losses, history_file):
+        weights_history = []
+        biases_history = []
+        grads_history = []
+        losses_history = []
 
         weights_history.append(self.weights.copy())
         biases_history.append(self.biases.copy())
@@ -139,11 +133,13 @@ class FullConnectedLayer:
         })
         losses_history.append(losses.copy())
 
-        np.savez(self.history_file,
+        np.savez(history_file,
                  weights=weights_history,
                  biases=biases_history,
                  grads=grads_history,
                  losses=losses_history)
+
+        print(f"Сохранена информация о весах и смещениях в файл: {history_file}")
 
 
 class MaxPoolLayer:
@@ -280,8 +276,8 @@ class NeuralNetwork:
         self.mpl1 = MaxPoolLayer((pool_size // 2, pool_size // 2), stride // 2)
         self.conv2 = ConvolutionLayer(filter_size, num_filters, num_filters, stride, learning_rate)
         self.mpl2 = MaxPoolLayer((pool_size, pool_size), stride)
-        self.fcl = FullConnectedLayer(hidden_size, hidden_size, "history_fcl1.npz", activation, learning_rate)
-        self.fcl2 = FullConnectedLayer(hidden_size, output_size, "history_fcl2.npz", activation, learning_rate)
+        self.fcl = FullConnectedLayer(hidden_size, hidden_size, activation, learning_rate)
+        self.fcl2 = FullConnectedLayer(hidden_size, output_size, activation, learning_rate)
 
     def forward(self, x):
         x = self.conv1.forward(x)
@@ -304,7 +300,7 @@ class NeuralNetwork:
 
         return d
 
-    def train(self, images, labels, save, epochs=10, batch_size=29):
+    def train(self, images, labels, save, epochs=100, batch_size=29):
         num_samples = images.shape[0]
         losses_e = []
         losses_b = []
@@ -331,7 +327,7 @@ class NeuralNetwork:
                 labels = labels[indices]
 
                 # Разделение данных на мини-батчи
-                for batch_start in range(0, num_samples, batch_size):
+                for batch_start in tqdm(range(0, num_samples, batch_size)):
                     acc = []
                     loss_b = []
                     batch_weights = []
@@ -366,8 +362,6 @@ class NeuralNetwork:
                     batch_weights.append(self.fcl.get_weights())
 
                     time_e_b = time.time()
-                    print(f"Loss: {loss:.4f}, Accuracy: {now_correct_predictions / batch_size:.4%}\n"
-                          f"Time: {time_e_b - time_s_b} sec.")
 
                     # Сохраняем результаты для текущего батча
                     weights_b.append(batch_weights)
@@ -386,14 +380,15 @@ class NeuralNetwork:
                 losses_e.append(epoch_losses)
 
                 self.save_model(save)
-                self.fcl.save_history(average_loss)
-                self.fcl2.save_history(average_loss)
+                self.fcl.save_history(average_loss, f"history_fcl_{epoch + 1}.npz")
+                self.fcl2.save_history(average_loss, f"history_fcl2_{epoch + 1}.npz")
 
                 # Вывод результатов текущей эпохи
                 print(f"Epoch {epoch + 1}/{epochs} - Loss: {average_loss:.4f}, Accuracy: {accuracy:.4%}\n"
                       f"Time: {time_e - time_s} sec.")
                 f.write(f"Epoch {epoch + 1}/{epochs} - Loss: {average_loss:.4f}, Accuracy: {accuracy:.4%}\n"
                         f"Time: {time_e - time_s} sec.")
+                f.flush()
 
         # Сохранение в файлы
         with open("Batch_Losses.txt", "w") as f_b_loss:
@@ -416,20 +411,16 @@ class NeuralNetwork:
         model_data = {
             "conv1_filters": self.conv1.filters,
             "conv1_biases": self.conv1.biases,
-            "conv1_activation": self.conv1.activation,
             "mpl1_pool_size": self.mpl1.pool_size,
             "mpl1_stride": self.mpl1.stride,
             "conv2_filters": self.conv2.filters,
             "conv2_biases": self.conv2.biases,
             "mpl2_pool_size": self.mpl2.pool_size,
             "mpl2_stride": self.mpl2.stride,
-            "conv2_activation": self.conv1.activation,
             "fcl_weights": self.fcl.weights,
             "fcl_biases": self.fcl.biases,
-            "fcl_activation": self.fcl.activation,
             "fcl2_weights": self.fcl2.weights,
             "fcl2_biases": self.fcl2.biases,
-            "fcl2_activation": self.fcl2.activation
         }
         np.savez(file_path, **model_data)
         print(f"Модель сохранена в файл: {file_path}")
@@ -439,23 +430,23 @@ class NeuralNetwork:
         Загружает параметры модели из файла.
         :param file_path: путь к файлу для загрузки
         """
-        model_data = np.load(file_path)
+        model_data = np.load(file_path + ".npz", allow_pickle=True)
         self.conv1.filters = model_data["conv1_filters"]
         self.conv1.biases = model_data["conv1_biases"]
-        self.conv1.activation = model_data["conv1_activation"]
+        self.conv1.activation = relu
         self.mpl1.pool_size = model_data["mpl1_pool_size"]
         self.mpl1.stride = model_data["mpl1_stride"]
         self.conv2.filters = model_data["conv2_filters"]
         self.conv2.biases = model_data["conv2_biases"]
-        self.conv2.activation = model_data["conv2_activation"]
+        self.conv2.activation = relu
         self.mpl2.pool_size = model_data["mpl2_pool_size"]
         self.mpl2.stride = model_data["mpl2_stride"]
         self.fcl.weights = model_data["fcl_weights"]
         self.fcl.biases = model_data["fcl_biases"]
-        self.fcl.activation = model_data["fcl_activation"]
+        self.fcl.activation = relu
         self.fcl2.weights = model_data["fcl2_weights"]
         self.fcl2.biases = model_data["fcl2_biases"]
-        self.fcl2.activation = model_data["fcl2_activation"]
+        self.fcl2.activation = relu
         print(f"Модель загружена из файла: {file_path}")
 
 
@@ -510,7 +501,7 @@ def main():
     pool_size = 2  # рассчитать (1 - [64x64xN] -> [64x64xN]; 2 - [32x32xM] -> [16x16xM]), 1 - (2), 2 - (2)
     stride = 2  # рассчитать (2)
 
-    gray_image = learn_images[0].mean(axis=-1)
+    gray_image = learn_images[0]
     plt.imshow(gray_image, cmap='gray')
     plt.title(f"Label: {learn_labels[0]}")
     plt.axis('off')
@@ -527,3 +518,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+# epochs: 0
