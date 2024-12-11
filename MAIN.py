@@ -46,6 +46,15 @@ class AdamOptimizer:
 
         return weights
 
+    def get(self):
+        return {
+            'm': self.m.tolist(),
+            'v': self.v.tolist(),
+            't': self.t,
+            'beta1': self.beta1,
+            'beta2': self.beta2
+        }
+
 
 def softmax(x):
     exp_x = np.exp(x - np.max(x, axis=1, keepdims=True))
@@ -94,6 +103,7 @@ class FullConnectedLayer:
         self.activation = activation
         self.history_file = history_file
         self.learning_rate = learning_rate
+        self.grads = {}
         self.input_data = None
         self.d_weights = None
         self.d_biases = None
@@ -117,6 +127,12 @@ class FullConnectedLayer:
         self.weights = self.optimizer.update(self.weights, self.d_weights, self.optimizer.t)
         self.biases -= self.learning_rate * self.d_biases  # Для biases можно оставить обычное обновление
 
+        self.grads = {
+            'input': self.d_input,
+            'weights': self.d_weights,
+            'biases': self.d_biases
+        }
+
         return self.d_input
 
     def get_weights(self):
@@ -134,15 +150,27 @@ class FullConnectedLayer:
     def save_history(self, history_file):
         weights_history = []
         biases_history = []
+        grads_history = []
+        adam_history = []
 
         weights_history.append(self.weights.copy())
         biases_history.append(self.biases.copy())
 
+        grads_history.append({
+            'input': self.grads['input'].tolist(),
+            'weights': self.grads['weights'].tolist(),
+            'biases': self.grads['biases'].tolist()
+        })
+
+        adam_history.append(self.optimizer.get())  # get уже преобразует данные
+
         np.savez(history_file,
                  weights=weights_history,
-                 biases=biases_history)
+                 biases=biases_history,
+                 grads=grads_history,
+                 adam=adam_history)
 
-        print(f"Сохранена информация о weights, biases в файл: {history_file}")
+        print(f"Сохранена информация о weights, biases, grads, adam в файл: {history_file}")
 
 
 class MaxPoolLayer:
@@ -221,6 +249,7 @@ class ConvolutionLayer:  # maybe ready
         self.activation = activation
         self.optimizer = AdamOptimizer(learning_rate=learning_rate)
         self.image = None
+        self.grads = {}
 
     def forward(self, image):
         count, h, w, channels = image.shape
@@ -269,6 +298,12 @@ class ConvolutionLayer:  # maybe ready
         d_filters /= count
         d_input /= count
 
+        self.grads = {
+            'input': d_input,
+            'filters': d_filters,
+            'biases': d_biases
+        }
+
         self.filters = self.optimizer.update(self.filters, d_filters, self.optimizer.t)
         self.biases -= self.optimizer.learning_rate * d_biases
 
@@ -277,15 +312,36 @@ class ConvolutionLayer:  # maybe ready
     def save_history(self, history_file):
         weights_history = []
         biases_history = []
+        grads_history = []
+        adam_history = []
 
         weights_history.append(self.filters.copy())
         biases_history.append(self.biases.copy())
 
+        # Преобразуем grads в сериализуемую структуру
+        grads_history.append({
+            'input': self.grads['input'].tolist(),
+            'filters': self.grads['filters'].tolist(),
+            'biases': self.grads['biases'].tolist()
+        })
+
+        # Получаем данные оптимизатора Adam и преобразуем их
+        adam_history.append({
+            'm': self.optimizer.m.tolist(),
+            'v': self.optimizer.v.tolist(),
+            't': self.optimizer.t,
+            'beta1': self.optimizer.beta1,
+            'beta2': self.optimizer.beta2
+        })
+
+        # Сохраняем данные в файл
         np.savez(history_file,
                  weights=weights_history,
-                 biases=biases_history)
+                 biases=biases_history,
+                 grads=grads_history,
+                 adam=adam_history)
 
-        print(f"Сохранена информация о filters, biases в файл: {history_file}")
+        print(f"Сохранена информация о filters, biases, grads, adam в файл: {history_file}")
 
 
 class NeuralNetwork:
@@ -374,8 +430,6 @@ class NeuralNetwork:
                     batch_weights.append(self.fcl.get_weights())
 
                     time_e_b = time.time()
-                    print(f"Loss: {loss:.4f}, Accuracy: {now_correct_predictions / batch_size:.4%}\n"
-                          f"Time: {time_e_b - time_s_b} sec.")
 
                     weights_b.append(batch_weights)
                     losses_b.append(loss_b)
@@ -508,7 +562,7 @@ def main():
     learn_images, learn_labels = learn
     train_images, train_labels = train
 
-    real_model = "model_weights/saved_model"
+    real_model = "model_weights/saved_model.npz"
 
     output_size = len(classes)  # рассчитано автоматически
     input_size = 128 * 128
