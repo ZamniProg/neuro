@@ -61,6 +61,12 @@ def softmax(x):
     return exp_x / np.sum(exp_x, axis=1, keepdims=True)
 
 
+def invert_image(image_path):
+    image = Image.open(image_path).resize((128, 128))
+    image_arr = np.array(image) / 255.0
+    return image_arr
+
+
 def load_data(path):
     learn_data = []
     train_data = []
@@ -385,7 +391,7 @@ class NeuralNetwork:
         weights_e = []
         query = input("Загрузить уже готовые веса для модели? (y/n) - ")
         if query == "y":
-            self.load_model("model_weights/full_model.npz")
+            self.load_model("model_weights/saved_model.npz")
 
         with open("Accuracy.txt", "w") as f:
             for epoch in range(epochs):
@@ -526,6 +532,25 @@ class NeuralNetwork:
 
         print(f"Модель загружена из файла: {file_path}")
 
+    def use(self, image_path):
+        image = invert_image(image_path)
+        true_image = Image.open(image_path)
+        prediction = self.forward(image)
+        result = np.argmax(prediction, axis=1)
+
+        fig, axes = plt.subplots(1, 2, figsize=(12, 6))
+
+        axes[0].imshow(true_image)
+        axes[0].axis('off')
+        axes[0].set_title("True Image")
+
+        axes[1].imshow(true_image)
+        axes[1].axis('off')
+        axes[1].set_title(f"Prediction: {list(classes.keys())[result[0]]}")
+
+        plt.tight_layout()
+        plt.show()
+
 
 def test_model(model, test_images, test_labels):
     """
@@ -565,7 +590,7 @@ def main():
     real_model = "model_weights/saved_model.npz"
 
     output_size = len(classes)  # рассчитано автоматически
-    input_size = 128 * 128
+    input_size = 128*128
     filter_size = 2
     num_filters = 64
     hidden_size = 4096
