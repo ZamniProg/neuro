@@ -157,7 +157,6 @@ class FullConnectedLayer:
         weights_history = []
         biases_history = []
         grads_history = []
-        adam_history = []
 
         weights_history.append(self.weights.copy())
         biases_history.append(self.biases.copy())
@@ -168,15 +167,12 @@ class FullConnectedLayer:
             'biases': self.grads['biases'].tolist()
         })
 
-        adam_history.append(self.optimizer.get())  # get уже преобразует данные
-
         np.savez(history_file,
                  weights=weights_history,
                  biases=biases_history,
-                 grads=grads_history,
-                 adam=adam_history)
+                 grads=grads_history)
 
-        print(f"Сохранена информация о weights, biases, grads, adam в файл: {history_file}")
+        print(f"Сохранена информация о weights, biases, grads в файл: {history_file}")
 
 
 class MaxPoolLayer:
@@ -319,35 +315,23 @@ class ConvolutionLayer:  # maybe ready
         weights_history = []
         biases_history = []
         grads_history = []
-        adam_history = []
 
         weights_history.append(self.filters.copy())
         biases_history.append(self.biases.copy())
 
-        # Преобразуем grads в сериализуемую структуру
         grads_history.append({
             'input': self.grads['input'].tolist(),
             'filters': self.grads['filters'].tolist(),
             'biases': self.grads['biases'].tolist()
         })
 
-        # Получаем данные оптимизатора Adam и преобразуем их
-        adam_history.append({
-            'm': self.optimizer.m.tolist(),
-            'v': self.optimizer.v.tolist(),
-            't': self.optimizer.t,
-            'beta1': self.optimizer.beta1,
-            'beta2': self.optimizer.beta2
-        })
-
         # Сохраняем данные в файл
         np.savez(history_file,
                  weights=weights_history,
                  biases=biases_history,
-                 grads=grads_history,
-                 adam=adam_history)
+                 grads=grads_history)
 
-        print(f"Сохранена информация о filters, biases, grads, adam в файл: {history_file}")
+        print(f"Сохранена информация о filters, biases, grads в файл: {history_file}")
 
 
 class NeuralNetwork:
@@ -389,9 +373,10 @@ class NeuralNetwork:
         accuracies_e = []
         weights_b = []
         weights_e = []
+        save_dir = "saves"
         query = input("Загрузить уже готовые веса для модели? (y/n) - ")
         if query == "y":
-            self.load_model("model_weights/saved_model.npz")
+            self.load_model(f"{save_dir}/full_model.npz")
 
         with open("Accuracy.txt", "w") as f:
             for epoch in range(epochs):
@@ -451,35 +436,16 @@ class NeuralNetwork:
                 losses_e.append(epoch_losses)
 
                 self.save_model(save)
-                self.fcl.save_history(f"model_weights/fcl1_history_{epoch + 1}.npz")
-                self.fcl2.save_history(f"model_weights/fcl2_history_{epoch + 1}.npz")
-                self.conv1.save_history(f"model_weights/conv1_history_{epoch + 1}.npz")
-                self.conv2.save_history(f"model_weights/conv2_history_{epoch + 1}.npz")
+                self.fcl.save_history(f"{save_dir}/fcl1_history_{epoch + 1}.npz")
+                self.fcl2.save_history(f"{save_dir}/fcl2_history_{epoch + 1}.npz")
+                self.conv1.save_history(f"{save_dir}/conv1_history_{epoch + 1}.npz")
+                self.conv2.save_history(f"{save_dir}/conv2_history_{epoch + 1}.npz")
 
                 print(f"Epoch {epoch + 1}/{epochs} - Loss: {average_loss:.4f}, Accuracy: {accuracy:.4%}\n"
                       f"Time: {time_e - time_s} sec.")
                 f.write(f"Epoch {epoch + 1}/{epochs} - Loss: {average_loss:.4f}, Accuracy: {accuracy:.4%}\n"
                         f"Time: {time_e - time_s} sec.")
-
-        self.save_losses(losses_e, accuracies_e)
-
-        with open("Batch_Losses.txt", "w") as f_b_loss:
-            f_b_loss.write(str(losses_b))
-
-        with open("Epoch_Losses.txt", "w") as f_e_loss:
-            f_e_loss.write(str(losses_e))
-
-        with open("Batch_Weights.txt", "w") as f_b_weights:
-            f_b_weights.write(str(weights_b))
-
-        with open("Epoch_Weights.txt", "w") as f_e_weights:
-            f_e_weights.write(str(weights_e))
-
-    @staticmethod
-    def save_losses(losses, accurs, save_dir="Losses"):
-        np.savez(os.path.join(save_dir, "training_history.npz"),
-                 loss=losses,
-                 accuracy=accurs)
+        print("Learn of model is ready! Enjoy!")
 
     def save_model(self, file_path):
         """
@@ -534,6 +500,7 @@ class NeuralNetwork:
 
     def use(self, image_path):
         image = invert_image(image_path)
+        image = np.expand_dims(image, axis=0)
         true_image = Image.open(image_path)
         prediction = self.forward(image)
         result = np.argmax(prediction, axis=1)
@@ -587,9 +554,9 @@ def main():
     learn_images, learn_labels = learn
     train_images, train_labels = train
 
-    real_model = "model_weights/saved_model.npz"
+    real_model = "saves/full_model.npz"
 
-    output_size = len(classes)  # рассчитано автоматически
+    output_size = len(classes)
     input_size = 128*128
     filter_size = 2
     num_filters = 64
@@ -597,17 +564,13 @@ def main():
     pool_size = 2
     stride = 2
 
-    gray_image = learn_images[0].mean(axis=-1)
-    plt.imshow(gray_image, cmap='gray')
-    plt.title(f"Label: {learn_labels[0]}")
-    plt.axis('off')
-    plt.show()
     model = NeuralNetwork(input_size, hidden_size, output_size,
                           filter_size, num_filters, pool_size, stride)
 
-    model.train(learn_images, learn_labels, real_model)
+    # model.train(learn_images, learn_labels, real_model)
 
-    model.load_model("model_weights/full_model.npz")
+    model.load_model("saves/full_model.npz")
+    # model.use("/home/zamni/PycharmProjects/neuro/flower_photos/tulips/65347450_53658c63bd_n.jpg")
     test_model(model, train_images, train_labels)
 
 
